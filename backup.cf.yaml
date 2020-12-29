@@ -1,0 +1,150 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >-
+
+  Use AWS backup to make backup within account to local default vault
+  Depending on Tag (bura: silver|gold|platinum)
+
+Parameters:
+  SilverDelete:
+    Type: Number
+    Default: 35
+
+  GoldDelete:
+    Type: Number
+    Default: 367
+
+  GoldMove:
+    Type: Number
+    Default: 35
+
+  PlatinumDelete:
+    Type: Number
+    Default: 367
+
+  PlatinumMove:
+    Type: Number
+    Default: 35
+
+  PlatinumDR:
+    Type: String
+    Default: eu-central-1
+
+  Address:
+    Type: String
+    Default: you@sample.org
+
+Resources:
+
+  BackupTopic:
+    Type: AWS::SNS::Topic
+    Properties: 
+      DisplayName: BackupResults
+
+  BackupSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref Address
+      Protocol: email
+      Region: !Ref "AWS::Region"
+      TopicArn: !Ref BackupTopic
+      
+  Vault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: Devault
+      Notifications: 
+        SNSTopicArn: !Ref BackupTopic
+        BackupVaultEvents:
+          - BACKUP_JOB_STARTED
+          - BACKUP_JOB_COMPLETED
+          - BACKUP_JOB_FAILED
+          - COPY_JOB_STARTED
+          - COPY_JOB_SUCCESSFUL
+          - COPY_JOB_FAILED
+
+
+  PlatinumPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: PlatinumPlan
+        BackupPlanRule:
+          - RuleName: PlatinumPlan
+            TargetBackupVault: !Ref Vault
+            ScheduleExpression: "cron(20 10 ? * * *)"
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 240
+            Lifecycle:
+              MoveToColdStorageAfterDays: !Ref PlatinumMove
+              DeleteAfterDays: !Ref PlatinumDelete
+            CopyActions:
+              - DestinationBackupVaultArn: !Sub arn:aws:backup:${PlatinumDR}:${AWS::AccountId}:backup-vault:Default
+                Lifecycle: 
+                  MoveToColdStorageAfterDays: !Ref PlatinumMove
+                  DeleteAfterDays: !Ref PlatinumDelete
+
+  PlatinumTag:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref PlatinumPlan
+      BackupSelection:
+        SelectionName: "PlatinumSelection"
+        IamRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/AWSBackupDefaultServiceRole
+        ListOfTags:
+         - ConditionType: "STRINGEQUALS"
+           ConditionKey: "bura"
+           ConditionValue: "platinum"
+
+  GoldPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: GoldDaily367
+        BackupPlanRule:
+          - RuleName: GoldDaily367
+            TargetBackupVault: !Ref Vault
+            ScheduleExpression: "cron(30 14 ? * * *)"
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 240
+            Lifecycle:
+              MoveToColdStorageAfterDays: !Ref GoldMove
+              DeleteAfterDays: !Ref GoldDelete
+                          
+  GoldTag:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref GoldPlan
+      BackupSelection:
+        SelectionName: "GoldSelection"
+        IamRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/AWSBackupDefaultServiceRole
+        ListOfTags:
+         - ConditionType: "STRINGEQUALS"
+           ConditionKey: "bura"
+           ConditionValue: "gold"
+
+  SilverPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: SilverDaily31
+        BackupPlanRule:
+          - RuleName: SilverDaily31
+            TargetBackupVault: !Ref Vault
+            ScheduleExpression: "cron(20 13 ? * * *)"
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 240
+            Lifecycle:
+              DeleteAfterDays: !Ref SilverDelete
+                          
+  SilverTag:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref SilverPlan
+      BackupSelection:
+        SelectionName: "SilverSelection"
+        IamRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/service-role/AWSBackupDefaultServiceRole
+        ListOfTags:
+         - ConditionType: "STRINGEQUALS"
+           ConditionKey: "bura"
+           ConditionValue: "silver"
